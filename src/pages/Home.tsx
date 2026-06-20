@@ -1,7 +1,5 @@
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store'
-import { STATUS_LABEL_MAP } from '@/types'
-import type { TaskStatus } from '@/types'
 import TaskCard from '@/components/TaskCard'
 import StepIndicator from '@/components/StepIndicator'
 import { Truck, Snowflake, Bell } from 'lucide-react'
@@ -12,7 +10,7 @@ export default function Home() {
 
   const todayTasks = tasks.filter((t) => t.status !== 'completed')
   const completedTasks = tasks.filter((t) => t.status === 'completed')
-  const activeTask = tasks.find((t) => t.status === 'in_transit')
+  const activeTask = tasks.find((t) => t.status === 'in_transit' || t.status === 'handover')
 
   return (
     <div className="min-h-screen bg-dark-900">

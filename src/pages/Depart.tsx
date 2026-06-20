@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store'
 import PageHeader from '@/components/PageHeader'
@@ -17,12 +17,40 @@ export default function Depart() {
   const { getTaskById, updateTask } = useAppStore()
   const task = getTaskById(taskId ?? '')
 
-  const [currentStep, setCurrentStep] = useState(0)
+  const [currentStep, setCurrentStep] = useState<number>(0)
   const [sealNumber, setSealNumber] = useState('')
   const [scanning, setScanning] = useState(false)
   const [scanComplete, setScanComplete] = useState(false)
   const [probeComplete, setProbeComplete] = useState(false)
   const [photoTaken, setPhotoTaken] = useState(false)
+
+  useEffect(() => {
+    if (!task) return
+    if (task.boxScanned) setScanComplete(true)
+    if (task.probeConnected) setProbeComplete(true)
+    if (task.sealNumber) {
+      setSealNumber(task.sealNumber)
+    }
+    if (task.photos.length > 0) {
+      setPhotoTaken(true)
+    }
+  }, [task?.id])
+
+  useEffect(() => {
+    if (!task) return
+    const stepsDone = [
+      task.boxScanned,
+      task.probeConnected,
+      !!task.sealNumber,
+      task.photos.length > 0,
+    ]
+    const firstIncomplete = stepsDone.findIndex((d) => !d)
+    if (firstIncomplete === -1) {
+      setCurrentStep(3)
+    } else if (firstIncomplete > 0) {
+      setCurrentStep(firstIncomplete)
+    }
+  }, [task?.id])
 
   if (!task) {
     return (
@@ -37,7 +65,7 @@ export default function Depart() {
     setTimeout(() => {
       setScanning(false)
       setScanComplete(true)
-      updateTask(task.id, { boxScanned: true })
+      updateTask(task.id, { boxScanned: true, status: 'departing' })
     }, 1500)
   }
 
@@ -48,6 +76,7 @@ export default function Depart() {
 
   const handleTakePhoto = () => {
     setPhotoTaken(true)
+    updateTask(task.id, { photos: [...task.photos, `装车照片_${Date.now()}.jpg`] })
   }
 
   const handleNextStep = () => {
@@ -62,7 +91,6 @@ export default function Depart() {
       sealNumber,
       departureTime: new Date().toISOString(),
       remainingDistance: 120,
-      photos: [...task.photos, '装车照片_1.jpg'],
     })
     navigate(`/transit/${task.id}`)
   }
@@ -77,6 +105,9 @@ export default function Depart() {
         <div className="bg-dark-700 rounded-2xl p-4 border-glass mb-6">
           <div className="flex items-center gap-2 mb-2">
             <span className="font-mono-num text-lg font-semibold text-white">{task.tripNumber}</span>
+            {task.status === 'departing' && (
+              <span className="text-[10px] bg-warn/20 text-warn px-1.5 py-0.5 rounded">发车中</span>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs text-gray-400">
             <div>批号: <span className="text-gray-300">{task.vaccineBatch}</span></div>
@@ -167,9 +198,7 @@ export default function Depart() {
 
                     {step.key === 'probe' && (
                       <button
-                        onClick={() => {
-                          handleProbeCheck()
-                        }}
+                        onClick={handleProbeCheck}
                         className="w-full py-3 rounded-xl font-medium text-sm bg-ice text-dark-900 btn-3d flex items-center justify-center gap-2"
                       >
                         <Link2 className="w-4 h-4" />

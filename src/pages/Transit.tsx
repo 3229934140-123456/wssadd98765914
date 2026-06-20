@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store'
 import PageHeader from '@/components/PageHeader'
@@ -8,14 +8,27 @@ import {
   Clock,
   AlertTriangle,
   ClipboardCheck,
-  ChevronDown,
   X,
 } from 'lucide-react'
+
+function speakAlert() {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+  try {
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance('温度告警，温度接近警戒线，请及时检查！')
+    utterance.lang = 'zh-CN'
+    utterance.rate = 1.0
+    utterance.volume = 1.0
+    window.speechSynthesis.speak(utterance)
+  } catch {
+    // ignore
+  }
+}
 
 export default function Transit() {
   const { taskId } = useParams<{ taskId: string }>()
   const navigate = useNavigate()
-  const { getTaskById, addInspectionRecord, startTempSimulation, stopTempSimulation } = useAppStore()
+  const { getTaskById, addInspectionRecord, startTempSimulation, stopTempSimulation, updateTask } = useAppStore()
   const task = getTaskById(taskId ?? '')
 
   const [showInspection, setShowInspection] = useState(false)
@@ -25,6 +38,7 @@ export default function Transit() {
   const [inspectionNotes, setInspectionNotes] = useState('')
   const [nextInspection, setNextInspection] = useState(1800)
   const [showAlertBanner, setShowAlertBanner] = useState(false)
+  const alertSpokenRef = useRef(false)
 
   useEffect(() => {
     if (task?.id) {
@@ -37,12 +51,17 @@ export default function Transit() {
 
   useEffect(() => {
     if (!task) return
-    if (task.currentTemp >= task.warningTemp && !showAlertBanner) {
-      setShowAlertBanner(true)
+    if (task.currentTemp >= task.warningTemp) {
+      if (!showAlertBanner) setShowAlertBanner(true)
+      if (!alertSpokenRef.current) {
+        alertSpokenRef.current = true
+        speakAlert()
+      }
     } else if (task.currentTemp < task.warningTemp - 1) {
       setShowAlertBanner(false)
+      alertSpokenRef.current = false
     }
-  }, [task?.currentTemp, task?.warningTemp])
+  }, [task?.currentTemp, task?.warningTemp, task])
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -86,6 +105,7 @@ export default function Transit() {
       : 'from-safe/20 to-safe/5'
 
   const handleSubmitInspection = () => {
+    if (!task) return
     const record = {
       id: `insp-${Date.now()}`,
       taskId: task.id,
@@ -104,6 +124,13 @@ export default function Transit() {
     setNextInspection(1800)
   }
 
+  const handleArriveDestination = () => {
+    if (!task) return
+    stopTempSimulation()
+    updateTask(task.id, { status: 'handover' })
+    navigate(`/handover/${task.id}`)
+  }
+
   const remainingKm = Math.round(task.remainingDistance ?? 0)
 
   return (
@@ -117,11 +144,14 @@ export default function Transit() {
 
       {showAlertBanner && (
         <div className="bg-danger/20 border-b border-danger/30 px-5 py-2.5 flex items-center gap-2 animate-slide-down">
-          <AlertTriangle className="w-4 h-4 text-danger animate-pulse-fast" />
-          <span className="text-danger text-sm font-medium">温度接近警戒线！请及时检查</span>
+          <div className="relative">
+            <AlertTriangle className="w-4 h-4 text-danger animate-pulse-fast" />
+            <span className="absolute inset-0 w-4 h-4 bg-danger/40 rounded-full animate-ripple" />
+          </div>
+          <span className="text-danger text-sm font-medium flex-1">温度接近警戒线！请及时检查</span>
           <button
-            onClick={() => navigate(`/alert/${task.id}`)}
-            className="ml-auto bg-danger/30 text-danger text-xs px-3 py-1 rounded-full font-medium"
+            onClick={() => navigate(`/alert/${task.id}?fromWarning=1`)}
+            className="bg-danger/30 text-danger text-xs px-3 py-1 rounded-full font-medium active:bg-danger/40"
           >
             上报异常
           </button>
@@ -207,10 +237,7 @@ export default function Transit() {
           </button>
 
           <button
-            onClick={() => {
-              stopTempSimulation()
-              navigate(`/handover/${task.id}`)
-            }}
+            onClick={handleArriveDestination}
             className="w-full py-3.5 rounded-2xl font-medium text-sm bg-safe/10 text-safe border border-safe/20 active:bg-safe/20 transition-colors flex items-center justify-center gap-2"
           >
             到达目的地，开始交接

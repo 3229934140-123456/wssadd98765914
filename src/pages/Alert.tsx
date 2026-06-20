@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppStore } from '@/store'
 import { EXCEPTION_REASON_MAP } from '@/types'
 import type { ExceptionReason } from '@/types'
@@ -13,7 +13,22 @@ import {
   Camera,
   Check,
   Volume2,
+  Image,
 } from 'lucide-react'
+
+function speakAlert() {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+  try {
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance('温度告警，请立即处理！')
+    utterance.lang = 'zh-CN'
+    utterance.rate = 1.0
+    utterance.volume = 1.0
+    window.speechSynthesis.speak(utterance)
+  } catch {
+    // ignore
+  }
+}
 
 const REASON_CONFIG: { key: ExceptionReason; label: string; icon: typeof Car; color: string }[] = [
   { key: 'traffic_jam', label: '堵车', icon: Car, color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
@@ -25,6 +40,8 @@ const REASON_CONFIG: { key: ExceptionReason; label: string; icon: typeof Car; co
 export default function Alert() {
   const { taskId } = useParams<{ taskId: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const fromWarning = searchParams.get('fromWarning') === '1'
   const { getTaskById, addExceptionRecord } = useAppStore()
   const task = getTaskById(taskId ?? '')
 
@@ -32,12 +49,15 @@ export default function Alert() {
   const [description, setDescription] = useState('')
   const [photoTaken, setPhotoTaken] = useState(false)
   const [submitted, setSubmitted] = useState(false)
-  const [voiceAlertActive, setVoiceAlertActive] = useState(true)
+  const [voiceAlertActive, setVoiceAlertActive] = useState(fromWarning)
 
   useEffect(() => {
-    const timer = setTimeout(() => setVoiceAlertActive(false), 4000)
-    return () => clearTimeout(timer)
-  }, [])
+    if (fromWarning) {
+      speakAlert()
+      const timer = setTimeout(() => setVoiceAlertActive(false), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [fromWarning])
 
   if (!task) {
     return (
@@ -47,16 +67,24 @@ export default function Alert() {
     )
   }
 
+  const needsPhoto = selectedReason !== null && selectedReason !== 'other'
+  const canSubmit = selectedReason !== null && (!needsPhoto || photoTaken)
+
   const handleSubmit = () => {
-    if (!selectedReason) return
+    if (!canSubmit) return
+
+    const photoNames: string[] = []
+    if (photoTaken) {
+      photoNames.push(`${EXCEPTION_REASON_MAP[selectedReason!]}_现场_${Date.now()}.jpg`)
+    }
 
     const record = {
       id: `exc-${Date.now()}`,
       taskId: task.id,
       timestamp: new Date().toISOString(),
-      reason: selectedReason,
+      reason: selectedReason!,
       description: description || undefined,
-      photos: photoTaken ? ['异常现场照片_1.jpg'] : [],
+      photos: photoNames,
       tempAtTime: task.currentTemp,
     }
     addExceptionRecord(record)
@@ -70,8 +98,15 @@ export default function Alert() {
           <Check className="w-10 h-10 text-safe" />
         </div>
         <h2 className="text-xl font-bold text-white mb-2">异常已上报</h2>
-        <p className="text-gray-400 text-sm text-center mb-8">
-          处置记录已生成，到站交接时可供疾控仓库核对
+        <p className="text-gray-400 text-sm text-center mb-2">处置记录已生成</p>
+        {photoTaken && (
+          <div className="flex items-center gap-1.5 bg-safe/10 text-safe text-xs px-3 py-1.5 rounded-full mb-6">
+            <Image className="w-3.5 h-3.5" />
+            已附带现场照片
+          </div>
+        )}
+        <p className="text-gray-500 text-xs text-center mb-8">
+          到站交接时可供疾控仓库核对
         </p>
         <button
           onClick={() => navigate(`/transit/${task.id}`)}
@@ -87,15 +122,18 @@ export default function Alert() {
     <div className="min-h-screen bg-dark-900">
       <PageHeader title="异常上报" />
 
-      {voiceAlertActive && (
-        <div className="bg-danger/10 border-b border-danger/20 px-5 py-3 flex items-center gap-3 animate-slide-down">
+      {voiceAlertActive && fromWarning && (
+        <div className="bg-danger/15 border-b border-danger/30 px-5 py-3 flex items-center gap-3 animate-slide-down">
           <div className="relative">
-            <Volume2 className="w-6 h-6 text-danger" />
-            <span className="absolute -top-1 -right-1 w-3 h-3 bg-danger rounded-full animate-pulse-fast" />
+            <div className="w-10 h-10 rounded-full bg-danger/20 flex items-center justify-center">
+              <Volume2 className="w-5 h-5 text-danger" />
+            </div>
+            <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-danger rounded-full animate-ripple" />
+            <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-danger rounded-full animate-pulse-fast" />
           </div>
-          <div>
-            <p className="text-danger text-sm font-medium">温度异常语音告警</p>
-            <p className="text-danger/70 text-xs">当前温度 {task.currentTemp}°C 已接近警戒线</p>
+          <div className="flex-1">
+            <p className="text-danger text-sm font-semibold">温度告警触发</p>
+            <p className="text-danger/80 text-xs">当前温度 {task.currentTemp}°C 已超过警戒线 {task.warningTemp}°C，请尽快拍照上报</p>
           </div>
         </div>
       )}
@@ -105,6 +143,9 @@ export default function Alert() {
           <div className="flex items-center gap-2 mb-1">
             <AlertTriangle className="w-4 h-4 text-warn" />
             <span className="text-sm text-gray-300">当前温度</span>
+            {fromWarning && (
+              <span className="text-[10px] bg-danger/20 text-danger px-1.5 py-0.5 rounded ml-auto">告警触发</span>
+            )}
           </div>
           <div className="flex items-baseline gap-1">
             <span className="font-mono-num text-3xl font-bold text-warn">{task.currentTemp.toFixed(1)}</span>
@@ -148,32 +189,51 @@ export default function Alert() {
             </div>
 
             <div>
-              <p className="text-sm text-gray-400 mb-2">现场拍照</p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm text-gray-400">现场拍照</p>
+                {needsPhoto && (
+                  <span className="text-xs text-danger">必填</span>
+                )}
+              </div>
               <button
                 onClick={() => setPhotoTaken(true)}
                 className={`w-full py-4 rounded-xl border-2 border-dashed flex items-center justify-center gap-2 transition-all ${
                   photoTaken
                     ? 'bg-safe/10 border-safe/30 text-safe'
+                    : needsPhoto
+                    ? 'bg-danger/5 border-danger/20 text-danger/70 hover:bg-danger/10'
                     : 'bg-dark-600 border-dark-500 text-gray-400'
                 }`}
               >
                 {photoTaken ? (
                   <>
                     <Check className="w-5 h-5" />
-                    <span className="text-sm font-medium">照片已上传</span>
+                    <span className="text-sm font-medium">照片已上传（{task.id}_${selectedReason}.jpg）</span>
                   </>
                 ) : (
                   <>
                     <Camera className="w-5 h-5" />
-                    <span className="text-sm font-medium">拍摄现场照片</span>
+                    <span className="text-sm font-medium">
+                      {needsPhoto ? '请先拍摄现场照片' : '拍摄现场照片（可选）'}
+                    </span>
                   </>
                 )}
               </button>
+              {!photoTaken && needsPhoto && (
+                <p className="text-xs text-danger/70 mt-1.5">
+                  {EXCEPTION_REASON_MAP[selectedReason]}必须上传现场照片，处置记录才可追溯
+                </p>
+              )}
             </div>
 
             <button
               onClick={handleSubmit}
-              className="w-full py-4 rounded-2xl font-bold text-base bg-gradient-to-r from-warn to-amber-500 text-dark-900 btn-3d flex items-center justify-center gap-2"
+              disabled={!canSubmit}
+              className={`w-full py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all ${
+                canSubmit
+                  ? 'bg-gradient-to-r from-warn to-amber-500 text-dark-900 btn-3d'
+                  : 'bg-dark-600 text-gray-500 cursor-not-allowed'
+              }`}
             >
               <AlertTriangle className="w-5 h-5" />
               提交异常报告
