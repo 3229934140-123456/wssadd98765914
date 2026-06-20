@@ -2,6 +2,26 @@ export type TaskStatus = 'pending' | 'departing' | 'in_transit' | 'handover' | '
 
 export type ExceptionReason = 'traffic_jam' | 'temp_stop' | 'equipment_failure' | 'other'
 
+export type DisposalResult = 'contacted_dispatch' | 'replaced_ice_packs' | 'continue_monitoring' | 'resolved' | 'pending'
+
+export const DISPOSAL_RESULT_MAP: Record<DisposalResult, string> = {
+  contacted_dispatch: '已联系调度',
+  replaced_ice_packs: '已更换冰排',
+  continue_monitoring: '继续观察',
+  resolved: '问题已解决',
+  pending: '待处理',
+}
+
+export interface TemperatureLog {
+  id: string
+  taskId: string
+  timestamp: string
+  temp: number
+  distance: number
+  eventType?: 'inspection' | 'exception' | 'warning' | 'normal'
+  eventId?: string
+}
+
 export interface TransportTask {
   id: string
   tripNumber: string
@@ -43,6 +63,9 @@ export interface ExceptionRecord {
   photos: string[]
   photoTimes?: string[]
   tempAtTime: number
+  disposalResult?: DisposalResult
+  disposalNotes?: string
+  disposalTime?: string
 }
 
 export interface HandoverRecord {

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { TransportTask, InspectionRecord, ExceptionRecord, HandoverRecord } from '@/types'
+import type { TransportTask, InspectionRecord, ExceptionRecord, HandoverRecord, TemperatureLog } from '@/types'
 
 const mockTasks: TransportTask[] = [
   {
@@ -73,15 +73,19 @@ interface AppState {
   exceptionRecords: ExceptionRecord[]
   handoverRecords: HandoverRecord[]
   handoverConfirms: HandoverConfirmState[]
+  temperatureLogs: TemperatureLog[]
   tempSimulationInterval: ReturnType<typeof setInterval> | null
 
   getTaskById: (id: string) => TransportTask | undefined
   updateTask: (id: string, updates: Partial<TransportTask>) => void
   addInspectionRecord: (record: InspectionRecord) => void
   addExceptionRecord: (record: ExceptionRecord) => void
+  updateExceptionRecord: (id: string, updates: Partial<ExceptionRecord>) => void
   addHandoverRecord: (record: HandoverRecord) => void
   getHandoverConfirm: (taskId: string) => HandoverConfirmState
   updateHandoverConfirm: (taskId: string, updates: Partial<HandoverConfirmState>) => void
+  getTemperatureLogsByTaskId: (taskId: string) => TemperatureLog[]
+  addTemperatureLog: (log: TemperatureLog) => void
   startTempSimulation: (taskId: string) => void
   stopTempSimulation: () => void
   simulateTempChange: (taskId: string) => void
@@ -95,6 +99,7 @@ export const useAppStore = create<AppState>()(
       exceptionRecords: [],
       handoverRecords: [],
       handoverConfirms: [],
+      temperatureLogs: [],
       tempSimulationInterval: null,
 
       getTaskById: (id: string) => {
@@ -116,6 +121,14 @@ export const useAppStore = create<AppState>()(
       addExceptionRecord: (record: ExceptionRecord) => {
         set((state) => ({
           exceptionRecords: [...state.exceptionRecords, record],
+        }))
+      },
+
+      updateExceptionRecord: (id: string, updates: Partial<ExceptionRecord>) => {
+        set((state) => ({
+          exceptionRecords: state.exceptionRecords.map((e) =>
+            e.id === id ? { ...e, ...updates } : e
+          ),
         }))
       },
 
@@ -167,6 +180,16 @@ export const useAppStore = create<AppState>()(
         })
       },
 
+      getTemperatureLogsByTaskId: (taskId: string) => {
+        return get().temperatureLogs.filter((l) => l.taskId === taskId)
+      },
+
+      addTemperatureLog: (log: TemperatureLog) => {
+        set((state) => ({
+          temperatureLogs: [...state.temperatureLogs, log],
+        }))
+      },
+
       startTempSimulation: (taskId: string) => {
         const interval = setInterval(() => {
           get().simulateTempChange(taskId)
@@ -214,6 +237,17 @@ export const useAppStore = create<AppState>()(
           remainingDistance: newRemaining,
           estimatedArrival,
         })
+
+        const isWarning = newTemp >= task.warningTemp
+        const distanceTravelled = totalDist - newRemaining
+        get().addTemperatureLog({
+          id: `log-${Date.now()}`,
+          taskId,
+          timestamp: new Date().toISOString(),
+          temp: newTemp,
+          distance: Math.round(distanceTravelled),
+          eventType: isWarning ? 'warning' : 'normal',
+        })
       },
     }),
     {
@@ -224,6 +258,7 @@ export const useAppStore = create<AppState>()(
         exceptionRecords: state.exceptionRecords,
         handoverRecords: state.handoverRecords,
         handoverConfirms: state.handoverConfirms,
+        temperatureLogs: state.temperatureLogs,
       }),
     }
   )
