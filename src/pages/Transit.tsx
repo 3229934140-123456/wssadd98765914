@@ -9,6 +9,8 @@ import {
   AlertTriangle,
   ClipboardCheck,
   X,
+  Truck,
+  BellRing,
 } from 'lucide-react'
 
 function speakAlert() {
@@ -16,6 +18,19 @@ function speakAlert() {
   try {
     window.speechSynthesis.cancel()
     const utterance = new SpeechSynthesisUtterance('温度告警，温度接近警戒线，请及时检查！')
+    utterance.lang = 'zh-CN'
+    utterance.rate = 1.0
+    utterance.volume = 1.0
+    window.speechSynthesis.speak(utterance)
+  } catch {
+    // ignore
+  }
+}
+
+function speakArrivalReminder() {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+  try {
+    const utterance = new SpeechSynthesisUtterance('即将到达目的地，请做好交接准备。')
     utterance.lang = 'zh-CN'
     utterance.rate = 1.0
     utterance.volume = 1.0
@@ -38,7 +53,9 @@ export default function Transit() {
   const [inspectionNotes, setInspectionNotes] = useState('')
   const [nextInspection, setNextInspection] = useState(1800)
   const [showAlertBanner, setShowAlertBanner] = useState(false)
+  const [showArrivalReminder, setShowArrivalReminder] = useState(false)
   const alertSpokenRef = useRef(false)
+  const arrivalSpokenRef = useRef(false)
 
   useEffect(() => {
     if (task?.id) {
@@ -62,6 +79,18 @@ export default function Transit() {
       alertSpokenRef.current = false
     }
   }, [task?.currentTemp, task?.warningTemp, task])
+
+  useEffect(() => {
+    if (!task) return
+    const remaining = task.remainingDistance ?? 0
+    if (remaining <= 10 && remaining > 0) {
+      if (!showArrivalReminder) setShowArrivalReminder(true)
+      if (!arrivalSpokenRef.current) {
+        arrivalSpokenRef.current = true
+        speakArrivalReminder()
+      }
+    }
+  }, [task?.remainingDistance, task])
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -132,6 +161,8 @@ export default function Transit() {
   }
 
   const remainingKm = Math.round(task.remainingDistance ?? 0)
+  const totalKm = task.totalDistance ?? 120
+  const progressPercent = Math.max(0, Math.min(100, ((totalKm - remainingKm) / totalKm) * 100))
 
   return (
     <div className="min-h-screen bg-dark-900">
@@ -154,6 +185,21 @@ export default function Transit() {
             className="bg-danger/30 text-danger text-xs px-3 py-1 rounded-full font-medium active:bg-danger/40"
           >
             上报异常
+          </button>
+        </div>
+      )}
+
+      {showArrivalReminder && (
+        <div className="bg-ice/15 border-b border-ice/30 px-5 py-2.5 flex items-center gap-2 animate-slide-down">
+          <div className="relative">
+            <BellRing className="w-4 h-4 text-ice animate-pulse-slow" />
+          </div>
+          <span className="text-ice text-sm font-medium flex-1">即将到达目的地，请做好交接准备</span>
+          <button
+            onClick={() => setShowArrivalReminder(false)}
+            className="text-ice/70 text-xs px-2 py-0.5 rounded-full border border-ice/30"
+          >
+            知道了
           </button>
         </div>
       )}
@@ -193,29 +239,57 @@ export default function Transit() {
           </div>
         </div>
 
+        <div className="bg-dark-700 rounded-2xl p-4 border-glass mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Truck className="w-4 h-4 text-ice" />
+              <span className="text-sm text-gray-300">运输进度</span>
+            </div>
+            <span className="text-xs text-gray-500 font-mono-num">
+              {Math.round(totalKm - remainingKm)} / {totalKm} km
+            </span>
+          </div>
+          <div className="relative h-3 bg-dark-600 rounded-full overflow-hidden mb-3">
+            <div
+              className="h-full bg-gradient-to-r from-ice/70 to-ice rounded-full transition-all duration-1000"
+              style={{ width: `${progressPercent}%` }}
+            />
+            <div
+              className="absolute top-1/2 -translate-y-1/2 w-5 h-5 bg-white rounded-full shadow-lg border-2 border-ice flex items-center justify-center transition-all duration-1000"
+              style={{ left: `calc(${progressPercent}% - 10px)` }}
+            >
+              <Truck className="w-3 h-3 text-ice" />
+            </div>
+          </div>
+          <div className="flex items-center justify-between text-xs text-gray-500">
+            <span>发车点</span>
+            <span className="text-gray-400">{task.destination}</span>
+          </div>
+        </div>
+
         <div className="grid grid-cols-3 gap-3 mb-5">
-          <div className="bg-dark-700 rounded-2xl p-4 border-glass text-center">
+          <div className="bg-dark-700 rounded-2xl p-3.5 border-glass text-center">
             <MapPin className="w-5 h-5 text-ice mx-auto mb-1" />
             <p className="font-mono-num text-xl font-semibold text-white">{remainingKm}</p>
-            <p className="text-xs text-gray-500">剩余公里</p>
+            <p className="text-[10px] text-gray-500">剩余公里</p>
           </div>
-          <div className="bg-dark-700 rounded-2xl p-4 border-glass text-center">
-            <Clock className="w-5 h-5 text-warn mx-auto mb-1" />
+          <div className="bg-dark-700 rounded-2xl p-3.5 border-glass text-center">
+            <Clock className="w-5 h-5 text-safe mx-auto mb-1" />
+            <p className="font-mono-num text-lg font-semibold text-white">
+              {task.estimatedArrival || '--:--'}
+            </p>
+            <p className="text-[10px] text-gray-500">预计到达</p>
+          </div>
+          <div className="bg-dark-700 rounded-2xl p-3.5 border-glass text-center">
+            <ClipboardCheck className="w-5 h-5 text-warn mx-auto mb-1" />
             <p
-              className={`font-mono-num text-xl font-semibold ${
+              className={`font-mono-num text-lg font-semibold ${
                 nextInspection < 300 ? 'text-danger animate-pulse-fast' : 'text-white'
               }`}
             >
               {formatCountdown(nextInspection)}
             </p>
-            <p className="text-xs text-gray-500">下次巡检</p>
-          </div>
-          <div className="bg-dark-700 rounded-2xl p-4 border-glass text-center">
-            <Thermometer className="w-5 h-5 text-safe mx-auto mb-1" />
-            <p className="font-mono-num text-xl font-semibold text-white">
-              {task.targetTempRange[0]}-{task.targetTempRange[1]}
-            </p>
-            <p className="text-xs text-gray-500">目标°C</p>
+            <p className="text-[10px] text-gray-500">下次巡检</p>
           </div>
         </div>
 

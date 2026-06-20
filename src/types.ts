@@ -16,10 +16,12 @@ export interface TransportTask {
   sealNumber?: string
   departureTime?: string
   estimatedArrival?: string
+  totalDistance?: number
   remainingDistance?: number
   photos: string[]
   boxScanned: boolean
   probeConnected: boolean
+  completedTime?: string
 }
 
 export interface InspectionRecord {
@@ -39,6 +41,7 @@ export interface ExceptionRecord {
   reason: ExceptionReason
   description?: string
   photos: string[]
+  photoTimes?: string[]
   tempAtTime: number
 }
 

@@ -47,7 +47,7 @@ export default function Alert() {
 
   const [selectedReason, setSelectedReason] = useState<ExceptionReason | null>(null)
   const [description, setDescription] = useState('')
-  const [photoTaken, setPhotoTaken] = useState(false)
+  const [photos, setPhotos] = useState<{ name: string; time: string }[]>([])
   const [submitted, setSubmitted] = useState(false)
   const [voiceAlertActive, setVoiceAlertActive] = useState(fromWarning)
 
@@ -68,15 +68,22 @@ export default function Alert() {
   }
 
   const needsPhoto = selectedReason !== null && selectedReason !== 'other'
-  const canSubmit = selectedReason !== null && (!needsPhoto || photoTaken)
+  const photoCount = photos.length
+  const canSubmit = selectedReason !== null && (!needsPhoto || photoCount > 0)
+
+  const handleTakePhoto = () => {
+    const now = new Date()
+    const timeStr = now.toLocaleTimeString('zh-CN', { hour12: false })
+    const photoName = `${EXCEPTION_REASON_MAP[selectedReason!]}_现场${photoCount + 1}_${Date.now()}.jpg`
+    setPhotos([...photos, { name: photoName, time: timeStr }])
+  }
+
+  const handleRemovePhoto = (index: number) => {
+    setPhotos(photos.filter((_, i) => i !== index))
+  }
 
   const handleSubmit = () => {
     if (!canSubmit) return
-
-    const photoNames: string[] = []
-    if (photoTaken) {
-      photoNames.push(`${EXCEPTION_REASON_MAP[selectedReason!]}_现场_${Date.now()}.jpg`)
-    }
 
     const record = {
       id: `exc-${Date.now()}`,
@@ -84,7 +91,8 @@ export default function Alert() {
       timestamp: new Date().toISOString(),
       reason: selectedReason!,
       description: description || undefined,
-      photos: photoNames,
+      photos: photos.map((p) => p.name),
+      photoTimes: photos.map((p) => p.time),
       tempAtTime: task.currentTemp,
     }
     addExceptionRecord(record)
@@ -99,10 +107,10 @@ export default function Alert() {
         </div>
         <h2 className="text-xl font-bold text-white mb-2">异常已上报</h2>
         <p className="text-gray-400 text-sm text-center mb-2">处置记录已生成</p>
-        {photoTaken && (
+        {photoCount > 0 && (
           <div className="flex items-center gap-1.5 bg-safe/10 text-safe text-xs px-3 py-1.5 rounded-full mb-6">
             <Image className="w-3.5 h-3.5" />
-            已附带现场照片
+            已附带 {photoCount} 张现场照片
           </div>
         )}
         <p className="text-gray-500 text-xs text-center mb-8">
@@ -191,35 +199,57 @@ export default function Alert() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-sm text-gray-400">现场拍照</p>
-                {needsPhoto && (
+                {needsPhoto && photoCount === 0 && (
                   <span className="text-xs text-danger">必填</span>
                 )}
+                {photoCount > 0 && (
+                  <span className="text-xs text-safe">已拍 {photoCount} 张</span>
+                )}
               </div>
+
+              {photoCount > 0 && (
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  {photos.map((photo, idx) => (
+                    <div
+                      key={idx}
+                      className="relative aspect-square rounded-lg bg-dark-600 border border-dark-500 flex flex-col items-center justify-center p-1.5"
+                    >
+                      <Image className="w-6 h-6 text-ice/60 mb-1" />
+                      <span className="text-[9px] text-gray-500 text-center leading-tight truncate w-full">
+                        第{idx + 1}张
+                      </span>
+                      <span className="text-[8px] text-gray-600">{photo.time}</span>
+                      <button
+                        onClick={() => handleRemovePhoto(idx)}
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-danger text-white flex items-center justify-center text-[10px] shadow-lg"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <button
-                onClick={() => setPhotoTaken(true)}
-                className={`w-full py-4 rounded-xl border-2 border-dashed flex items-center justify-center gap-2 transition-all ${
-                  photoTaken
-                    ? 'bg-safe/10 border-safe/30 text-safe'
+                onClick={handleTakePhoto}
+                className={`w-full py-3 rounded-xl border-2 border-dashed flex items-center justify-center gap-2 transition-all ${
+                  photoCount > 0
+                    ? 'bg-dark-600/50 border-ice/30 text-ice/80 hover:bg-dark-600'
                     : needsPhoto
                     ? 'bg-danger/5 border-danger/20 text-danger/70 hover:bg-danger/10'
                     : 'bg-dark-600 border-dark-500 text-gray-400'
                 }`}
               >
-                {photoTaken ? (
-                  <>
-                    <Check className="w-5 h-5" />
-                    <span className="text-sm font-medium">照片已上传（{task.id}_${selectedReason}.jpg）</span>
-                  </>
-                ) : (
-                  <>
-                    <Camera className="w-5 h-5" />
-                    <span className="text-sm font-medium">
-                      {needsPhoto ? '请先拍摄现场照片' : '拍摄现场照片（可选）'}
-                    </span>
-                  </>
-                )}
+                <Camera className="w-5 h-5" />
+                <span className="text-sm font-medium">
+                  {photoCount > 0
+                    ? '继续拍摄现场照片'
+                    : needsPhoto
+                    ? '请先拍摄现场照片'
+                    : '拍摄现场照片（可选）'}
+                </span>
               </button>
-              {!photoTaken && needsPhoto && (
+              {photoCount === 0 && needsPhoto && (
                 <p className="text-xs text-danger/70 mt-1.5">
                   {EXCEPTION_REASON_MAP[selectedReason]}必须上传现场照片，处置记录才可追溯
                 </p>

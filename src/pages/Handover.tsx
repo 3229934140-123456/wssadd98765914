@@ -15,6 +15,10 @@ import {
   Image,
   User,
   ClipboardCheck,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  MapPin,
 } from 'lucide-react'
 
 export default function Handover() {
@@ -44,6 +48,7 @@ export default function Handover() {
   const [driverSigned, setDriverSigned] = useState(persistedConfirm?.driverSigned ?? false)
   const [receiverSigned, setReceiverSigned] = useState(persistedConfirm?.receiverSigned ?? false)
   const [completed, setCompleted] = useState(task?.status === 'completed')
+  const [expandedPhotos, setExpandedPhotos] = useState<Record<string, boolean>>({})
 
   const taskExceptions = taskId ? exceptionRecords.filter((e) => e.taskId === taskId) : []
   const taskInspections = taskId ? inspectionRecords.filter((i) => i.taskId === taskId) : []
@@ -153,7 +158,8 @@ export default function Handover() {
 
   const handleCompleteHandover = () => {
     if (task) {
-      updateTask(task.id, { status: 'completed' })
+      const now = new Date().toISOString()
+      updateTask(task.id, { status: 'completed', completedTime: now })
       addHandoverRecord({
         taskId: task.id,
         vaccineBatchConfirmed: confirmItems.vaccineBatch,
@@ -162,7 +168,7 @@ export default function Handover() {
         exceptionRecordsReviewed: confirmItems.exceptionRecords,
         driverSignature: driverSigned ? 'signed' : undefined,
         receiverSignature: receiverSigned ? 'signed' : undefined,
-        handoverTime: new Date().toISOString(),
+        handoverTime: now,
       })
       setCompleted(true)
     }
@@ -176,73 +182,86 @@ export default function Handover() {
     )
   }
 
-  if (completed) {
-    return (
-      <div className="min-h-screen bg-dark-900 flex flex-col items-center justify-center px-8">
-        <div className="w-20 h-20 rounded-full bg-safe/20 flex items-center justify-center mb-6 animate-scale-in">
-          <Check className="w-10 h-10 text-safe" />
-        </div>
-        <h2 className="text-xl font-bold text-white mb-2">交接完成</h2>
-        <p className="text-gray-400 text-sm text-center mb-2">
-          {task.tripNumber} 已成功交接
-        </p>
-        <p className="text-gray-500 text-xs text-center mb-8">
-          全程冷链轨迹已归档，可追溯
-        </p>
-        <button
-          onClick={() => navigate('/')}
-          className="w-full max-w-xs py-3.5 rounded-2xl font-medium text-sm bg-safe text-white btn-3d"
-        >
-          返回首页
-        </button>
-      </div>
-    )
-  }
+  const isCompleted = task.status === 'completed'
+  const isHandover = task.status === 'handover'
 
   const toggleConfirm = (key: keyof typeof confirmItems) => {
+    if (isCompleted) return
     const newItems = { ...confirmItems, [key]: !confirmItems[key] }
     setConfirmItems(newItems)
   }
 
   return (
     <div className="min-h-screen bg-dark-900 pb-8">
-      <PageHeader title="交接确认" />
+      <PageHeader title={isCompleted ? '运输归档单' : '交接确认'} />
 
-      {task.status === 'handover' && (
+      {isHandover && (
         <div className="bg-purple-500/15 border-b border-purple-500/30 px-5 py-2.5 flex items-center gap-2">
           <ClipboardCheck className="w-4 h-4 text-purple-400" />
           <span className="text-purple-300 text-sm font-medium">交接中 · 请与接收人核对</span>
         </div>
       )}
 
+      {isCompleted && (
+        <div className="bg-safe/15 border-b border-safe/30 px-5 py-2.5 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-safe" />
+          <span className="text-safe text-sm font-medium">运输已完成 · 全程冷链可追溯</span>
+        </div>
+      )}
+
       <div className="px-5 py-4 space-y-4">
-        {task.sealNumber && (
-          <div className="bg-dark-700 rounded-2xl p-4 border-glass">
-            <div className="flex items-center gap-2 mb-2">
-              <h3 className="text-sm font-medium text-gray-300">发车信息</h3>
+        <div className="bg-dark-700 rounded-2xl p-4 border-glass">
+          <div className="flex items-center gap-2 mb-3">
+            <h3 className="text-sm font-medium text-gray-300">运输信息</h3>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-xs text-gray-500">车次</p>
+              <p className="font-mono-num text-white">{task.tripNumber}</p>
             </div>
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-xs text-gray-500">目的地</p>
+              <p className="text-white text-sm truncate">{task.destination}</p>
+            </div>
+            {task.totalDistance !== undefined && (
+              <div>
+                <p className="text-xs text-gray-500">总里程</p>
+                <p className="font-mono-num text-white">{task.totalDistance} km</p>
+              </div>
+            )}
+            {task.sealNumber && (
               <div>
                 <p className="text-xs text-gray-500">铅封号</p>
                 <p className="font-mono-num text-white">{task.sealNumber}</p>
               </div>
+            )}
+            {task.photos.length > 0 && (
               <div>
                 <p className="text-xs text-gray-500">装车照片</p>
-                <p className="text-ice">
-                  {task.photos.length > 0 ? `${task.photos.length} 张` : '未上传'}
+                <p className="text-ice">{task.photos.length} 张</p>
+              </div>
+            )}
+            {task.departureTime && (
+              <div>
+                <p className="text-xs text-gray-500">发车时间</p>
+                <p className="text-white text-xs">
+                  {new Date(task.departureTime).toLocaleString('zh-CN')}
                 </p>
               </div>
-              {task.departureTime && (
-                <div className="col-span-2">
-                  <p className="text-xs text-gray-500">发车时间</p>
-                  <p className="text-white">
-                    {new Date(task.departureTime).toLocaleString('zh-CN')}
-                  </p>
-                </div>
-              )}
-            </div>
+            )}
+            {isCompleted && task.completedTime && task.departureTime && (
+              <div className="col-span-2">
+                <p className="text-xs text-gray-500">运输时长</p>
+                <p className="text-white">
+                  {Math.round(
+                    (new Date(task.completedTime).getTime() - new Date(task.departureTime).getTime()) / 60000
+                  )}{' '}
+                  分钟
+                </p>
+              </div>
+            )}
           </div>
-        )}
+        </div>
 
         <div className="bg-dark-700 rounded-2xl p-4 border-glass">
           <h3 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
@@ -356,9 +375,40 @@ export default function Handover() {
                       {record.description && ` · ${record.description}`}
                     </p>
                     {record.photos.length > 0 && (
-                      <div className="mt-2 flex items-center gap-1.5 bg-dark-600/80 rounded-lg px-2.5 py-1.5 w-fit">
-                        <Image className="w-3 h-3 text-ice" />
-                        <span className="text-xs text-ice">{record.photos[0]}</span>
+                      <div className="mt-2">
+                        <button
+                          onClick={() => setExpandedPhotos({ ...expandedPhotos, [record.id]: !expandedPhotos[record.id] })}
+                          className="flex items-center gap-1.5 bg-dark-600/80 rounded-lg px-2.5 py-1.5 text-xs text-ice hover:bg-dark-600 transition-colors"
+                        >
+                          <Image className="w-3 h-3" />
+                          <span>现场照片 {record.photos.length} 张</span>
+                          {expandedPhotos[record.id] ? (
+                            <ChevronUp className="w-3 h-3" />
+                          ) : (
+                            <ChevronDown className="w-3 h-3" />
+                          )}
+                        </button>
+                        {expandedPhotos[record.id] && (
+                          <div className="mt-2 grid grid-cols-2 gap-2 animate-fade-in">
+                            {record.photos.map((photo, idx) => (
+                              <div
+                                key={idx}
+                                className="bg-dark-600 rounded-lg p-2 border border-dark-500"
+                              >
+                                <div className="aspect-video bg-dark-700 rounded-md flex items-center justify-center mb-1.5">
+                                  <Image className="w-6 h-6 text-ice/50" />
+                                </div>
+                                <p className="text-[10px] text-gray-400 truncate font-mono-num">
+                                  {photo}
+                                </p>
+                                <p className="text-[9px] text-gray-600 mt-0.5 flex items-center gap-0.5">
+                                  <Clock className="w-2.5 h-2.5" />
+                                  {record.photoTimes?.[idx] || '拍摄时间未知'}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                     {record.photos.length === 0 && (
@@ -374,8 +424,8 @@ export default function Handover() {
           </div>
         )}
 
-        {allConfirmed && (
-          <div className="bg-dark-700 rounded-2xl p-4 border-glass animate-slide-up">
+        {(allConfirmed || isCompleted) && (
+          <div className={`bg-dark-700 rounded-2xl p-4 border-glass ${!isCompleted ? 'animate-slide-up' : ''}`}>
             <h3 className="text-sm font-medium text-gray-300 mb-4 flex items-center gap-2">
               <PenTool className="w-4 h-4 text-ice" />
               电子签字
@@ -391,12 +441,14 @@ export default function Handover() {
                     <Check className="w-3.5 h-3.5" /> 已签署
                   </span>
                 ) : (
-                  <button
-                    onClick={() => setSignMode('driver')}
-                    className="text-ice text-xs px-3 py-1 rounded-full bg-ice/10 font-medium"
-                  >
-                    签字
-                  </button>
+                  !isCompleted && (
+                    <button
+                      onClick={() => setSignMode('driver')}
+                      className="text-ice text-xs px-3 py-1 rounded-full bg-ice/10 font-medium"
+                    >
+                      签字
+                    </button>
+                  )
                 )}
               </div>
               <div className="flex items-center justify-between bg-dark-600 rounded-xl p-3">
@@ -409,19 +461,21 @@ export default function Handover() {
                     <Check className="w-3.5 h-3.5" /> 已签署
                   </span>
                 ) : (
-                  <button
-                    onClick={() => setSignMode('receiver')}
-                    className="text-ice text-xs px-3 py-1 rounded-full bg-ice/10 font-medium"
-                  >
-                    签字
-                  </button>
+                  !isCompleted && (
+                    <button
+                      onClick={() => setSignMode('receiver')}
+                      className="text-ice text-xs px-3 py-1 rounded-full bg-ice/10 font-medium"
+                    >
+                      签字
+                    </button>
+                  )
                 )}
               </div>
             </div>
           </div>
         )}
 
-        {allConfirmed && allSigned && task.status !== 'completed' && (
+        {allConfirmed && allSigned && !isCompleted && (
           <button
             onClick={handleCompleteHandover}
             className="w-full py-4 rounded-2xl font-bold text-base bg-gradient-to-r from-safe to-emerald-500 text-white btn-3d flex items-center justify-center gap-2 animate-slide-up"
@@ -429,6 +483,31 @@ export default function Handover() {
             <CheckCircle2 className="w-5 h-5" />
             确认完成交接
           </button>
+        )}
+
+        {isCompleted && (
+          <div className="space-y-3 mt-2">
+            <div className="bg-safe/10 border border-safe/20 rounded-2xl p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle2 className="w-5 h-5 text-safe" />
+                <span className="text-sm font-semibold text-safe">交接完成</span>
+              </div>
+              {task.completedTime && (
+                <p className="text-xs text-gray-400">
+                  完成时间：{new Date(task.completedTime).toLocaleString('zh-CN')}
+                </p>
+              )}
+              <p className="text-xs text-gray-500 mt-1">
+                全程冷链运输记录已归档，可作为运输凭证追溯
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/')}
+              className="w-full py-3.5 rounded-2xl font-medium text-sm bg-dark-600 text-gray-300 border border-dark-500 active:bg-dark-500 transition-colors"
+            >
+              返回首页
+            </button>
+          </div>
         )}
       </div>
 

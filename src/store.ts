@@ -14,6 +14,8 @@ const mockTasks: TransportTask[] = [
     currentTemp: 3.2,
     targetTempRange: [2, 8],
     warningTemp: 7,
+    totalDistance: 120,
+    remainingDistance: 120,
     photos: [],
     boxScanned: false,
     probeConnected: false,
@@ -29,6 +31,8 @@ const mockTasks: TransportTask[] = [
     currentTemp: 4.1,
     targetTempRange: [2, 8],
     warningTemp: 7,
+    totalDistance: 85,
+    remainingDistance: 85,
     photos: [],
     boxScanned: false,
     probeConnected: false,
@@ -44,9 +48,12 @@ const mockTasks: TransportTask[] = [
     currentTemp: 3.8,
     targetTempRange: [2, 8],
     warningTemp: 7,
+    totalDistance: 65,
+    remainingDistance: 0,
     photos: [],
     boxScanned: true,
     probeConnected: true,
+    completedTime: '2026-06-20T15:30:00.000Z',
   },
 ]
 
@@ -190,9 +197,22 @@ export const useAppStore = create<AppState>()(
         newTemp = Math.max(1, Math.min(10, newTemp))
         newTemp = Math.round(newTemp * 10) / 10
 
+        const totalDist = task.totalDistance ?? 120
+        const distReduction = 0.5 + Math.random() * 1.0
+        const newRemaining = Math.max(0, (task.remainingDistance ?? totalDist) - distReduction)
+        const avgSpeedKmh = 60
+        const hoursLeft = newRemaining / avgSpeedKmh
+        const etaDate = new Date(Date.now() + hoursLeft * 60 * 60 * 1000)
+        const estimatedArrival = etaDate.toLocaleTimeString('zh-CN', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        })
+
         get().updateTask(taskId, {
           currentTemp: newTemp,
-          remainingDistance: Math.max(0, (task.remainingDistance ?? 120) - Math.random() * 2),
+          remainingDistance: newRemaining,
+          estimatedArrival,
         })
       },
     }),

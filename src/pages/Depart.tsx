@@ -79,6 +79,13 @@ export default function Depart() {
     updateTask(task.id, { photos: [...task.photos, `装车照片_${Date.now()}.jpg`] })
   }
 
+  const handleSealChange = (value: string) => {
+    setSealNumber(value)
+    if (task) {
+      updateTask(task.id, { sealNumber: value || undefined })
+    }
+  }
+
   const handleNextStep = () => {
     if (currentStep < STEPS.length - 1) {
       setCurrentStep(currentStep + 1)
@@ -86,11 +93,22 @@ export default function Depart() {
   }
 
   const handleStartTransport = () => {
+    const totalDist = task.totalDistance ?? 120
+    const avgSpeedKmh = 60
+    const hoursLeft = totalDist / avgSpeedKmh
+    const etaDate = new Date(Date.now() + hoursLeft * 60 * 60 * 1000)
+    const estimatedArrival = etaDate.toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+
     updateTask(task.id, {
       status: 'in_transit',
-      sealNumber,
       departureTime: new Date().toISOString(),
-      remainingDistance: 120,
+      remainingDistance: totalDist,
+      totalDistance: totalDist,
+      estimatedArrival,
     })
     navigate(`/transit/${task.id}`)
   }
@@ -211,7 +229,7 @@ export default function Depart() {
                         <input
                           type="text"
                           value={sealNumber}
-                          onChange={(e) => setSealNumber(e.target.value)}
+                          onChange={(e) => handleSealChange(e.target.value)}
                           placeholder="请输入铅封号"
                           className="w-full bg-dark-600 border border-dark-500 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm focus:outline-none focus:border-ice/50 transition-colors font-mono-num"
                         />
