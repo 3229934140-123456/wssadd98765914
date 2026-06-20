@@ -1,7 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store'
-import { EXCEPTION_REASON_MAP, DISPOSAL_RESULT_MAP } from '@/types'
+import {
+  EXCEPTION_REASON_MAP,
+  DISPOSAL_RESULT_MAP,
+  HANDOVER_CHECKLIST_LABELS,
+} from '@/types'
+import type { HandoverChecklist } from '@/types'
 import PageHeader from '@/components/PageHeader'
 import {
   Package,
@@ -28,6 +33,15 @@ import {
   Eye,
   CheckCircle,
   X,
+  Share2,
+  FolderOpen,
+  Lock,
+  Radio,
+  AlertCircle,
+  ArrowRight,
+  History,
+  Camera,
+  FileSignature,
 } from 'lucide-react'
 
 export default function Handover() {
@@ -60,12 +74,33 @@ export default function Handover() {
   const [completed, setCompleted] = useState(task?.status === 'completed')
   const [expandedPhotos, setExpandedPhotos] = useState<Record<string, boolean>>({})
   const [showVoucher, setShowVoucher] = useState(false)
+  const [showVoucherPack, setShowVoucherPack] = useState(false)
+  const [checklist, setChecklist] = useState<HandoverChecklist>(
+    persistedConfirm?.checklist ?? {
+      vaccineBatchChecked: false,
+      boxCountChecked: false,
+      sealChecked: false,
+      probeChecked: false,
+      exceptionHandled: false,
+    }
+  )
 
   const taskExceptions = taskId ? exceptionRecords.filter((e) => e.taskId === taskId) : []
   const taskInspections = taskId ? inspectionRecords.filter((i) => i.taskId === taskId) : []
   const temperatureLogs = taskId ? getTemperatureLogsByTaskId(taskId) : []
 
-  const syncConfirmToStore = (items: typeof confirmItems, dSigned: boolean, rSigned: boolean) => {
+  const checklistDone = Object.values(checklist).every(Boolean)
+  const autoExceptionHandled = taskExceptions.every((e) => e.disposalResult && e.disposalResult !== 'pending')
+
+  useEffect(() => {
+    if (taskExceptions.length === 0 && !checklist.exceptionHandled) {
+      setChecklist((prev) => ({ ...prev, exceptionHandled: true }))
+    } else if (taskExceptions.length > 0 && autoExceptionHandled && !checklist.exceptionHandled) {
+      setChecklist((prev) => ({ ...prev, exceptionHandled: true }))
+    }
+  }, [taskExceptions, autoExceptionHandled])
+
+  const syncConfirmToStore = (items: typeof confirmItems, dSigned: boolean, rSigned: boolean, cl: HandoverChecklist) => {
     if (!taskId) return
     updateHandoverConfirm(taskId, {
       vaccineBatchConfirmed: items.vaccineBatch,
@@ -74,12 +109,13 @@ export default function Handover() {
       exceptionRecordsReviewed: items.exceptionRecords,
       driverSigned: dSigned,
       receiverSigned: rSigned,
+      checklist: cl,
     })
   }
 
   useEffect(() => {
-    syncConfirmToStore(confirmItems, driverSigned, receiverSigned)
-  }, [confirmItems, driverSigned, receiverSigned])
+    syncConfirmToStore(confirmItems, driverSigned, receiverSigned, checklist)
+  }, [confirmItems, driverSigned, receiverSigned, checklist])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -267,21 +303,32 @@ export default function Handover() {
   }
 
   const handleCompleteHandover = () => {
-    if (task) {
-      const now = new Date().toISOString()
-      updateTask(task.id, { status: 'completed', completedTime: now })
-      addHandoverRecord({
-        taskId: task.id,
-        vaccineBatchConfirmed: confirmItems.vaccineBatch,
-        boxCountConfirmed: confirmItems.boxCount,
-        tempRecordsConfirmed: confirmItems.tempRecords,
-        exceptionRecordsReviewed: confirmItems.exceptionRecords,
-        driverSignature: driverSigned ? 'signed' : undefined,
-        receiverSignature: receiverSigned ? 'signed' : undefined,
-        handoverTime: now,
-      })
-      setCompleted(true)
+    if (!task) return
+    if (!checklistDone) {
+      alert('请先完成交接前检查清单的全部 5 项核对')
+      return
     }
+    if (!allConfirmed) {
+      alert('请先完成交接信息核对的 4 项确认')
+      return
+    }
+    if (!allSigned) {
+      alert('请完成司机和接收人的电子签字')
+      return
+    }
+    const now = new Date().toISOString()
+    updateTask(task.id, { status: 'completed', completedTime: now })
+    addHandoverRecord({
+      taskId: task.id,
+      vaccineBatchConfirmed: confirmItems.vaccineBatch,
+      boxCountConfirmed: confirmItems.boxCount,
+      tempRecordsConfirmed: confirmItems.tempRecords,
+      exceptionRecordsReviewed: confirmItems.exceptionRecords,
+      driverSignature: driverSigned ? 'signed' : undefined,
+      receiverSignature: receiverSigned ? 'signed' : undefined,
+      handoverTime: now,
+    })
+    setCompleted(true)
   }
 
   if (!task) {
@@ -447,6 +494,85 @@ export default function Handover() {
         )}
 
         <div className="bg-dark-700 rounded-2xl p-4 border-glass">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-gray-300 flex items-center gap-2">
+              <ClipboardCheck className="w-4 h-4 text-purple-400" />
+              交接前检查清单
+            </h3>
+            <span className={`text-xs px-2 py-0.5 rounded-full ${checklistDone ? 'bg-safe/20 text-safe' : 'bg-warn/20 text-warn'}`}>
+              {Object.values(checklist).filter(Boolean).length}/5 已核对
+            </span>
+          </div>
+          <div className="space-y-2">
+            {(Object.keys(HANDOVER_CHECKLIST_LABELS) as (keyof HandoverChecklist)[]).map((key) => {
+              const label = HANDOVER_CHECKLIST_LABELS[key]
+              const checked = checklist[key]
+              const autoChecked = key === 'exceptionHandled' && (taskExceptions.length === 0 || autoExceptionHandled)
+              return (
+                <div
+                  key={key}
+                  className={`flex items-start gap-3 p-3 rounded-xl transition-all cursor-pointer ${
+                    checked ? 'bg-safe/10 border border-safe/30' : 'bg-dark-600/60 border border-dark-500'
+                  }`}
+                  onClick={() => {
+                    if (isCompleted) return
+                    setChecklist((prev) => ({ ...prev, [key]: !prev[key] }))
+                  }}
+                >
+                  <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center mt-0.5 ${
+                    checked ? 'bg-safe border-safe' : 'border-gray-600'
+                  }`}>
+                    {checked && <Check className="w-3 h-3 text-white" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className={`text-sm font-medium ${checked ? 'text-safe' : 'text-white'}`}>
+                        {label.title}
+                      </p>
+                      {autoChecked && (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-safe/20 text-safe rounded">系统自动</span>
+                      )}
+                      {!checked && !isCompleted && (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-warn/20 text-warn rounded">待核对</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-0.5">{label.desc}</p>
+                    {key === 'sealChecked' && task.sealNumber && (
+                      <p className="text-[11px] text-gray-400 mt-0.5 font-mono-num">铅封号：{task.sealNumber}</p>
+                    )}
+                    {key === 'probeChecked' && (
+                      <p className="text-[11px] text-gray-400 mt-0.5">
+                        探头状态：{task.probeConnected ? '已连接' : '未连接'}
+                      </p>
+                    )}
+                    {key === 'exceptionHandled' && (
+                      <p className="text-[11px] text-gray-400 mt-0.5">
+                        {taskExceptions.length === 0
+                          ? '本次运输无异常记录'
+                          : `${taskExceptions.length} 条异常，${taskExceptions.filter((e) => e.disposalResult && e.disposalResult !== 'pending').length} 条已处置`}
+                      </p>
+                    )}
+                  </div>
+                  {key === 'vaccineBatchChecked' && <Package className="w-4 h-4 text-gray-500 mt-1 flex-shrink-0" />}
+                  {key === 'boxCountChecked' && <Package className="w-4 h-4 text-gray-500 mt-1 flex-shrink-0" />}
+                  {key === 'sealChecked' && <Lock className="w-4 h-4 text-gray-500 mt-1 flex-shrink-0" />}
+                  {key === 'probeChecked' && <Radio className="w-4 h-4 text-gray-500 mt-1 flex-shrink-0" />}
+                  {key === 'exceptionHandled' && <AlertCircle className="w-4 h-4 text-gray-500 mt-1 flex-shrink-0" />}
+                </div>
+              )
+            })}
+          </div>
+          {!checklistDone && !isCompleted && (
+            <div className="mt-3 flex items-start gap-2 bg-warn/10 rounded-xl p-2.5 border border-warn/20">
+              <AlertCircle className="w-4 h-4 text-warn flex-shrink-0 mt-0.5" />
+              <p className="text-[11px] text-warn/80">
+                请完成全部 5 项检查后再进行交接确认，未完成将无法完成交接
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-dark-700 rounded-2xl p-4 border-glass">
           <h3 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
             <Package className="w-4 h-4 text-ice" />
             交接信息核对
@@ -564,8 +690,42 @@ export default function Handover() {
                         {record.disposalResult === 'continue_monitoring' && <Eye className="w-3 h-3 text-safe/70" />}
                         {(record.disposalResult === 'resolved' || record.disposalResult === 'pending') && <CheckCircle className="w-3 h-3 text-safe/70" />}
                         <span className="text-xs text-safe/80">
-                          处置：{DISPOSAL_RESULT_MAP[record.disposalResult]}
+                          当前处置：{DISPOSAL_RESULT_MAP[record.disposalResult]}
                         </span>
+                      </div>
+                    )}
+                    {record.disposalSteps && record.disposalSteps.length > 1 && (
+                      <div className="mt-2.5">
+                        <p className="text-[10px] text-gray-500 flex items-center gap-1 mb-1.5">
+                          <History className="w-2.5 h-2.5" />
+                          处置过程时间线
+                        </p>
+                        <div className="relative pl-4 space-y-1.5">
+                          {record.disposalSteps.map((step, si) => (
+                            <div key={step.id} className="relative">
+                              <div className={`absolute -left-4 top-1 w-2 h-2 rounded-full ${
+                                si === record.disposalSteps.length - 1 ? 'bg-safe' : 'bg-ice/60'
+                              }`} />
+                              <div className="flex items-start gap-1.5">
+                                <span className="text-[10px] text-gray-500 font-mono-num whitespace-nowrap">
+                                  {new Date(step.timestamp).toLocaleTimeString('zh-CN', { hour12: false, minute: '2-digit', second: '2-digit' })}
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  {step.result === 'contacted_dispatch' && <Phone className="w-2.5 h-2.5 text-gray-400" />}
+                                  {step.result === 'replaced_ice_packs' && <Snowflake className="w-2.5 h-2.5 text-gray-400" />}
+                                  {step.result === 'continue_monitoring' && <Eye className="w-2.5 h-2.5 text-gray-400" />}
+                                  {(step.result === 'resolved' || step.result === 'pending') && <CheckCircle className="w-2.5 h-2.5 text-gray-400" />}
+                                  <span className="text-[11px] text-gray-300">
+                                    {DISPOSAL_RESULT_MAP[step.result]}
+                                  </span>
+                                </div>
+                              </div>
+                              {step.notes && (
+                                <p className="text-[10px] text-gray-500 ml-6 mt-0.5">说明：{step.notes}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                     {record.photos.length > 0 && (
@@ -695,6 +855,13 @@ export default function Handover() {
                 全程冷链运输记录已归档，可作为运输凭证追溯
               </p>
             </div>
+            <button
+              onClick={() => setShowVoucherPack(true)}
+              className="w-full py-3.5 rounded-2xl font-medium text-sm bg-gradient-to-r from-ice/20 to-purple-500/20 text-ice border border-ice/30 active:from-ice/30 active:to-purple-500/30 transition-colors flex items-center justify-center gap-2 mb-2"
+            >
+              <FolderOpen className="w-4 h-4" />
+              报账凭证包（汇总照片+签字+摘要）
+            </button>
             <button
               onClick={() => setShowVoucher(true)}
               className="w-full py-3.5 rounded-2xl font-medium text-sm bg-ice/10 text-ice border border-ice/30 active:bg-ice/20 transition-colors flex items-center justify-center gap-2 mb-2"
@@ -942,6 +1109,196 @@ export default function Handover() {
                       本凭证由系统自动生成，{new Date().toLocaleString('zh-CN')}
                     </p>
                   </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showVoucherPack && (
+        <div className="fixed inset-0 z-50 bg-dark-900/95 flex flex-col animate-fade-in">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-dark-700">
+            <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+              <FolderOpen className="w-5 h-5 text-purple-400" />
+              报账凭证包
+            </h3>
+            <button
+              onClick={() => setShowVoucherPack(false)}
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-dark-700"
+            >
+              <X className="w-4 h-4 text-gray-400" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            {task && (
+              <div className="space-y-4 max-w-md mx-auto">
+                <div className="bg-gradient-to-br from-ice/20 to-purple-500/20 rounded-2xl p-4 border border-ice/30">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center">
+                      <FolderOpen className="w-6 h-6 text-ice" />
+                    </div>
+                    <div>
+                      <h4 className="text-white font-medium">{task.tripNumber}</h4>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {task.vaccineBatch} · {task.boxCount} 箱
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-4 gap-2 text-center">
+                    <div className="bg-white/5 rounded-lg py-2">
+                      <Camera className="w-4 h-4 text-ice mx-auto mb-0.5" />
+                      <p className="text-[10px] text-gray-400">装车</p>
+                      <p className="text-xs text-white font-mono-num">{task.photos.length}</p>
+                    </div>
+                    <div className="bg-white/5 rounded-lg py-2">
+                      <Image className="w-4 h-4 text-warn mx-auto mb-0.5" />
+                      <p className="text-[10px] text-gray-400">异常</p>
+                      <p className="text-xs text-white font-mono-num">
+                        {taskExceptions.reduce((sum, e) => sum + e.photos.length, 0)}
+                      </p>
+                    </div>
+                    <div className="bg-white/5 rounded-lg py-2">
+                      <FileSignature className="w-4 h-4 text-safe mx-auto mb-0.5" />
+                      <p className="text-[10px] text-gray-400">签字</p>
+                      <p className="text-xs text-white font-mono-num">{(driverSigned ? 1 : 0) + (receiverSigned ? 1 : 0)}/2</p>
+                    </div>
+                    <div className="bg-white/5 rounded-lg py-2">
+                      <Thermometer className="w-4 h-4 text-purple-400 mx-auto mb-0.5" />
+                      <p className="text-[10px] text-gray-400">记录</p>
+                      <p className="text-xs text-white font-mono-num">{temperatureLogs.length}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-dark-700 rounded-2xl p-4 border-glass">
+                  <h5 className="text-sm font-medium text-white flex items-center gap-2 mb-3">
+                    <Thermometer className="w-4 h-4 text-ice" />
+                    温度摘要
+                  </h5>
+                  <div className="grid grid-cols-4 gap-2 text-center">
+                    <div className="bg-dark-600 rounded-lg p-2">
+                      <p className="text-lg font-mono-num text-white">{tempSummary.avg.toFixed(1)}</p>
+                      <p className="text-[9px] text-gray-500">平均°C</p>
+                    </div>
+                    <div className="bg-warn/20 rounded-lg p-2">
+                      <p className="text-lg font-mono-num text-warn">{tempSummary.max.toFixed(1)}</p>
+                      <p className="text-[9px] text-gray-500">最高°C</p>
+                    </div>
+                    <div className="bg-safe/20 rounded-lg p-2">
+                      <p className="text-lg font-mono-num text-safe">{tempSummary.min.toFixed(1)}</p>
+                      <p className="text-[9px] text-gray-500">最低°C</p>
+                    </div>
+                    <div className="bg-dark-600 rounded-lg p-2">
+                      <p className="text-lg font-mono-num text-white">{tempSummary.warningCount}</p>
+                      <p className="text-[9px] text-gray-500">告警</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-dark-700 rounded-2xl p-4 border-glass">
+                  <h5 className="text-sm font-medium text-white flex items-center gap-2 mb-3">
+                    <Camera className="w-4 h-4 text-ice" />
+                    装车照片（{task.photos.length} 张）
+                  </h5>
+                  {task.photos.length > 0 ? (
+                    <div className="grid grid-cols-3 gap-2">
+                      {task.photos.map((p, i) => (
+                        <div key={i} className="aspect-square bg-dark-600 rounded-lg flex flex-col items-center justify-center border border-dark-500">
+                          <Image className="w-5 h-5 text-ice/50" />
+                          <p className="text-[9px] text-gray-500 mt-1">照片{i + 1}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-500 text-center py-4">暂无装车照片</p>
+                  )}
+                </div>
+
+                {taskExceptions.length > 0 && (
+                  <div className="bg-dark-700 rounded-2xl p-4 border-glass">
+                    <h5 className="text-sm font-medium text-white flex items-center gap-2 mb-3">
+                      <AlertTriangle className="w-4 h-4 text-warn" />
+                      异常照片清单
+                    </h5>
+                    <div className="space-y-3">
+                      {taskExceptions.map((exc, ei) => (
+                        <div key={exc.id} className="bg-dark-600/60 rounded-xl p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs text-warn font-medium">
+                              异常{ei + 1}: {EXCEPTION_REASON_MAP[exc.reason]}
+                            </p>
+                            {exc.disposalResult && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-safe/20 text-safe rounded">
+                                {DISPOSAL_RESULT_MAP[exc.disposalResult]}
+                              </span>
+                            )}
+                          </div>
+                          {exc.photos.length > 0 ? (
+                            <div className="grid grid-cols-4 gap-1.5">
+                              {exc.photos.map((p, pi) => (
+                                <div key={pi} className="aspect-square bg-dark-700 rounded-lg flex flex-col items-center justify-center border border-dark-500">
+                                  <Image className="w-4 h-4 text-warn/50" />
+                                  <p className="text-[8px] text-gray-500 mt-0.5">照片{pi + 1}</p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-[10px] text-gray-500">无照片</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-dark-700 rounded-2xl p-4 border-glass">
+                  <h5 className="text-sm font-medium text-white flex items-center gap-2 mb-3">
+                    <FileSignature className="w-4 h-4 text-safe" />
+                    双方签字确认
+                  </h5>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-dark-600 rounded-xl p-3 text-center border border-dark-500">
+                      <User className="w-6 h-6 text-gray-500 mx-auto mb-1.5" />
+                      <p className="text-xs text-gray-400">承运司机</p>
+                      <p className={`text-sm mt-1 font-medium ${driverSigned ? 'text-safe' : 'text-gray-600'}`}>
+                        {driverSigned ? '✓ 已签署' : '未签署'}
+                      </p>
+                    </div>
+                    <div className="bg-dark-600 rounded-xl p-3 text-center border border-dark-500">
+                      <User className="w-6 h-6 text-gray-500 mx-auto mb-1.5" />
+                      <p className="text-xs text-gray-400">接收人</p>
+                      <p className={`text-sm mt-1 font-medium ${receiverSigned ? 'text-safe' : 'text-gray-600'}`}>
+                        {receiverSigned ? '✓ 已签署' : '未签署'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setShowVoucherPack(false)
+                      setShowVoucher(true)
+                    }}
+                    className="flex-1 py-3 rounded-2xl font-medium text-sm bg-ice/10 text-ice border border-ice/30 flex items-center justify-center gap-1.5"
+                  >
+                    <FileCheck className="w-4 h-4" />
+                    预览凭证
+                  </button>
+                  <button
+                    onClick={handleExportVoucher}
+                    className="flex-1 py-3 rounded-2xl font-medium text-sm bg-safe/10 text-safe border border-safe/30 flex items-center justify-center gap-1.5"
+                  >
+                    <Download className="w-4 h-4" />
+                    导出凭证
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-center gap-2 pt-2 pb-4">
+                  <Share2 className="w-3.5 h-3.5 text-purple-400" />
+                  <p className="text-[11px] text-purple-400">回公司报账时凭此包快速核对归档</p>
                 </div>
               </div>
             )}

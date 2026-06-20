@@ -1,6 +1,14 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { TransportTask, InspectionRecord, ExceptionRecord, HandoverRecord, TemperatureLog } from '@/types'
+import type {
+  TransportTask,
+  InspectionRecord,
+  ExceptionRecord,
+  HandoverRecord,
+  TemperatureLog,
+  HandoverChecklist,
+  DisposalStep,
+} from '@/types'
 
 const mockTasks: TransportTask[] = [
   {
@@ -55,6 +63,42 @@ const mockTasks: TransportTask[] = [
     probeConnected: true,
     completedTime: '2026-06-20T15:30:00.000Z',
   },
+  {
+    id: 'task-004',
+    tripNumber: 'VC20260619-011',
+    vaccineBatch: '202605-MMR-0089',
+    boxCount: 12,
+    destination: '东城区东直门接种点',
+    destinationContact: '赵医生 010-6415xxxx',
+    status: 'completed',
+    currentTemp: 4.5,
+    targetTempRange: [2, 8],
+    warningTemp: 7,
+    totalDistance: 48,
+    remainingDistance: 0,
+    photos: [],
+    boxScanned: true,
+    probeConnected: true,
+    completedTime: '2026-06-19T11:20:00.000Z',
+  },
+  {
+    id: 'task-005',
+    tripNumber: 'VC20260618-007',
+    vaccineBatch: '202604-HEPB-0142',
+    boxCount: 28,
+    destination: '丰台区方庄接种点',
+    destinationContact: '孙护士 010-6768xxxx',
+    status: 'completed',
+    currentTemp: 3.6,
+    targetTempRange: [2, 8],
+    warningTemp: 7,
+    totalDistance: 72,
+    remainingDistance: 0,
+    photos: [],
+    boxScanned: true,
+    probeConnected: true,
+    completedTime: '2026-06-18T16:45:00.000Z',
+  },
 ]
 
 interface HandoverConfirmState {
@@ -65,6 +109,7 @@ interface HandoverConfirmState {
   exceptionRecordsReviewed: boolean
   driverSigned: boolean
   receiverSigned: boolean
+  checklist: HandoverChecklist
 }
 
 interface AppState {
@@ -77,10 +122,12 @@ interface AppState {
   tempSimulationInterval: ReturnType<typeof setInterval> | null
 
   getTaskById: (id: string) => TransportTask | undefined
+  searchCompletedTasks: (keyword: string) => TransportTask[]
   updateTask: (id: string, updates: Partial<TransportTask>) => void
   addInspectionRecord: (record: InspectionRecord) => void
   addExceptionRecord: (record: ExceptionRecord) => void
   updateExceptionRecord: (id: string, updates: Partial<ExceptionRecord>) => void
+  addDisposalStep: (exceptionId: string, step: DisposalStep) => void
   addHandoverRecord: (record: HandoverRecord) => void
   getHandoverConfirm: (taskId: string) => HandoverConfirmState
   updateHandoverConfirm: (taskId: string, updates: Partial<HandoverConfirmState>) => void
@@ -106,6 +153,20 @@ export const useAppStore = create<AppState>()(
         return get().tasks.find((t) => t.id === id)
       },
 
+      searchCompletedTasks: (keyword: string) => {
+        const kw = keyword.trim().toLowerCase()
+        const all = get().tasks.filter((t) => t.status === 'completed')
+        if (!kw) return all
+        return all.filter(
+          (t) =>
+            t.tripNumber.toLowerCase().includes(kw) ||
+            t.vaccineBatch.toLowerCase().includes(kw) ||
+            t.destination.toLowerCase().includes(kw) ||
+            (t.completedTime && new Date(t.completedTime).toLocaleDateString('zh-CN').includes(kw)) ||
+            (t.completedTime && new Date(t.completedTime).toISOString().split('T')[0].includes(kw))
+        )
+      },
+
       updateTask: (id: string, updates: Partial<TransportTask>) => {
         set((state) => ({
           tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...updates } : t)),
@@ -120,7 +181,7 @@ export const useAppStore = create<AppState>()(
 
       addExceptionRecord: (record: ExceptionRecord) => {
         set((state) => ({
-          exceptionRecords: [...state.exceptionRecords, record],
+          exceptionRecords: [...state.exceptionRecords, { ...record, disposalSteps: record.disposalSteps || [] }],
         }))
       },
 
@@ -128,6 +189,22 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           exceptionRecords: state.exceptionRecords.map((e) =>
             e.id === id ? { ...e, ...updates } : e
+          ),
+        }))
+      },
+
+      addDisposalStep: (exceptionId: string, step: DisposalStep) => {
+        set((state) => ({
+          exceptionRecords: state.exceptionRecords.map((e) =>
+            e.id === exceptionId
+              ? {
+                  ...e,
+                  disposalResult: step.result,
+                  disposalTime: step.timestamp,
+                  disposalNotes: step.notes,
+                  disposalSteps: [...(e.disposalSteps || []), step],
+                }
+              : e
           ),
         }))
       },
@@ -149,6 +226,13 @@ export const useAppStore = create<AppState>()(
           exceptionRecordsReviewed: false,
           driverSigned: false,
           receiverSigned: false,
+          checklist: {
+            vaccineBatchChecked: false,
+            boxCountChecked: false,
+            sealChecked: false,
+            probeChecked: false,
+            exceptionHandled: false,
+          },
         }
       },
 
@@ -158,7 +242,15 @@ export const useAppStore = create<AppState>()(
           if (exists) {
             return {
               handoverConfirms: state.handoverConfirms.map((h) =>
-                h.taskId === taskId ? { ...h, ...updates } : h
+                h.taskId === taskId
+                  ? {
+                      ...h,
+                      ...updates,
+                      checklist: updates.checklist
+                        ? { ...h.checklist, ...updates.checklist }
+                        : h.checklist,
+                    }
+                  : h
               ),
             }
           }
@@ -173,6 +265,13 @@ export const useAppStore = create<AppState>()(
                 exceptionRecordsReviewed: false,
                 driverSigned: false,
                 receiverSigned: false,
+                checklist: {
+                  vaccineBatchChecked: false,
+                  boxCountChecked: false,
+                  sealChecked: false,
+                  probeChecked: false,
+                  exceptionHandled: false,
+                },
                 ...updates,
               },
             ],

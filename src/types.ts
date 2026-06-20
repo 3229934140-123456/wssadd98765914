@@ -20,6 +20,30 @@ export interface TemperatureLog {
   distance: number
   eventType?: 'inspection' | 'exception' | 'warning' | 'normal'
   eventId?: string
+  eventLabel?: string
+}
+
+export interface DisposalStep {
+  id: string
+  timestamp: string
+  result: DisposalResult
+  notes?: string
+}
+
+export interface HandoverChecklist {
+  vaccineBatchChecked: boolean
+  boxCountChecked: boolean
+  sealChecked: boolean
+  probeChecked: boolean
+  exceptionHandled: boolean
+}
+
+export const HANDOVER_CHECKLIST_LABELS: Record<keyof HandoverChecklist, { title: string; desc: string }> = {
+  vaccineBatchChecked: { title: '疫苗批号核对', desc: '与发货单批号一致' },
+  boxCountChecked: { title: '箱数清点', desc: '保温箱数量与清单一致' },
+  sealChecked: { title: '铅封检查', desc: '铅封完好、编号匹配' },
+  probeChecked: { title: '温度探头', desc: '探头连接正常、数据完整' },
+  exceptionHandled: { title: '异常处置复核', desc: '所有异常已处置完毕' },
 }
 
 export interface TransportTask {
@@ -66,6 +90,7 @@ export interface ExceptionRecord {
   disposalResult?: DisposalResult
   disposalNotes?: string
   disposalTime?: string
+  disposalSteps: DisposalStep[]
 }
 
 export interface HandoverRecord {

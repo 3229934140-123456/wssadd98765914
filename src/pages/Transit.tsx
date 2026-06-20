@@ -216,7 +216,8 @@ export default function Transit() {
     : '请按时完成巡检确保冷链正常'
 
   const timelineEvents = useMemo(() => {
-    const events: Array<{
+    type TimelineEvent = {
+      timestamp: number
       time: string
       type: string
       temp: number
@@ -225,11 +226,17 @@ export default function Transit() {
       color: string
       title: string
       desc: string
-    }> = []
+      progressPct: number
+      critical: boolean
+    }
+    const events: TimelineEvent[] = []
+    const total = totalKm || 1
 
-    temperatureLogs.slice().reverse().forEach((log) => {
+    temperatureLogs.forEach((log) => {
+      const ts = new Date(log.timestamp).getTime()
       if (log.eventType === 'warning') {
         events.push({
+          timestamp: ts,
           time: new Date(log.timestamp).toLocaleTimeString('zh-CN', { hour12: false }),
           type: 'warning',
           temp: log.temp,
@@ -237,57 +244,82 @@ export default function Transit() {
           icon: <AlertCircle className="w-3.5 h-3.5" />,
           color: 'text-danger bg-danger/20 border-danger/30',
           title: `温度告警 ${log.temp.toFixed(1)}°C`,
-          desc: `已行驶 ${log.distance} km`,
+          desc: `已行驶 ${log.distance} km（${Math.round((log.distance / total) * 100)}%）`,
+          progressPct: Math.min(100, (log.distance / total) * 100),
+          critical: true,
         })
-      }
-    })
-
-    taskInspections.slice().reverse().forEach((insp) => {
-      events.push({
-        time: new Date(insp.timestamp).toLocaleTimeString('zh-CN', { hour12: false }),
-        type: 'inspection',
-        temp: task.currentTemp,
-        distance: 0,
-        icon: <ClipboardCheck className="w-3.5 h-3.5" />,
-        color: 'text-safe bg-safe/20 border-safe/30',
-        title: '巡检完成',
-        desc: `车门${insp.doorOpened ? '开启' : '正常'} · 冰排${insp.icePackDisplaced ? '移位' : '正常'} · 温度${insp.tempNormal ? '正常' : '异常'}`,
-      })
-    })
-
-    taskExceptions.slice().reverse().forEach((exc) => {
-      events.push({
-        time: new Date(exc.timestamp).toLocaleTimeString('zh-CN', { hour12: false }),
-        type: 'exception',
-        temp: exc.tempAtTime,
-        distance: 0,
-        icon: <AlertTriangle className="w-3.5 h-3.5" />,
-        color: 'text-warn bg-warn/20 border-warn/30',
-        title: `${EXCEPTION_REASON_MAP[exc.reason]} · ${exc.photos.length} 张照片`,
-        desc: exc.description || '已上报处置',
-      })
-    })
-
-    temperatureLogs
-      .filter((l) => l.eventType === 'normal')
-      .slice(-10)
-      .reverse()
-      .forEach((log) => {
+      } else if (log.eventType === 'normal') {
         events.push({
+          timestamp: ts,
           time: new Date(log.timestamp).toLocaleTimeString('zh-CN', { hour12: false }),
           type: 'normal',
           temp: log.temp,
           distance: log.distance,
           icon: <Thermometer className="w-3.5 h-3.5" />,
           color: 'text-ice bg-ice/20 border-ice/30',
-          title: `温度记录 ${log.temp.toFixed(1)}°C`,
-          desc: `已行驶 ${log.distance} km`,
+          title: `温度 ${log.temp.toFixed(1)}°C`,
+          desc: `已行驶 ${log.distance} km（${Math.round((log.distance / total) * 100)}%）`,
+          progressPct: Math.min(100, (log.distance / total) * 100),
+          critical: false,
         })
-      })
+      }
+    })
 
-    events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
-    return events.slice(0, 30)
-  }, [temperatureLogs, taskInspections, taskExceptions, task?.currentTemp])
+    taskInspections.forEach((insp) => {
+      const ts = new Date(insp.timestamp).getTime()
+      const nearestLog = temperatureLogs
+        .slice()
+        .sort((a, b) => Math.abs(new Date(a.timestamp).getTime() - ts) - Math.abs(new Date(b.timestamp).getTime() - ts))[0]
+      const dist = nearestLog?.distance ?? 0
+      events.push({
+        timestamp: ts,
+        time: new Date(insp.timestamp).toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'inspection',
+        temp: nearestLog?.temp ?? task.currentTemp,
+        distance: dist,
+        icon: <ClipboardCheck className="w-3.5 h-3.5" />,
+        color: 'text-safe bg-safe/20 border-safe/30',
+        title: '巡检完成',
+        desc: `车门${insp.doorOpened ? '开启' : '正常'} · 冰排${insp.icePackDisplaced ? '移位' : '正常'} · 温度${insp.tempNormal ? '正常' : '异常'} · 行驶 ${dist} km`,
+        progressPct: Math.min(100, (dist / total) * 100),
+        critical: true,
+      })
+    })
+
+    taskExceptions.forEach((exc) => {
+      const ts = new Date(exc.timestamp).getTime()
+      const nearestLog = temperatureLogs
+        .slice()
+        .sort((a, b) => Math.abs(new Date(a.timestamp).getTime() - ts) - Math.abs(new Date(b.timestamp).getTime() - ts))[0]
+      const dist = nearestLog?.distance ?? 0
+      events.push({
+        timestamp: ts,
+        time: new Date(exc.timestamp).toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'exception',
+        temp: exc.tempAtTime,
+        distance: dist,
+        icon: <AlertTriangle className="w-3.5 h-3.5" />,
+        color: 'text-warn bg-warn/20 border-warn/30',
+        title: `${EXCEPTION_REASON_MAP[exc.reason]} · ${exc.photos.length} 张照片`,
+        desc: `${exc.description || '已上报处置'} · 行驶 ${dist} km`,
+        progressPct: Math.min(100, (dist / total) * 100),
+        critical: true,
+      })
+    })
+
+    events.sort((a, b) => b.timestamp - a.timestamp)
+
+    if (events.length > 120) {
+      const critical = events.filter((e) => e.critical)
+      const nonCritical = events.filter((e) => !e.critical)
+      const sampleRate = Math.ceil(nonCritical.length / (120 - critical.length))
+      const sampledNon = nonCritical.filter((_, i) => i % sampleRate === 0)
+      const merged = [...critical, ...sampledNon]
+      merged.sort((a, b) => b.timestamp - a.timestamp)
+      return merged
+    }
+    return events
+  }, [temperatureLogs, taskInspections, taskExceptions, task?.currentTemp, totalKm])
 
   return (
     <div className="min-h-screen bg-dark-900">
@@ -485,8 +517,44 @@ export default function Transit() {
               <div className="text-xs text-gray-500 space-y-1 mb-3">
                 <p>总里程：{totalKm} km · 已行驶：{Math.round(totalKm - remainingKm)} km</p>
                 <p>温度记录 {temperatureLogs.length} 条 · 巡检 {taskInspections.length} 次 · 异常 {taskExceptions.length} 次</p>
+                <p className="text-gray-600">共 {timelineEvents.length} 个轨迹点（事件点全部保留，温度点长途自动采样）</p>
               </div>
-              <div className="flex gap-2 flex-wrap">
+              <div className="relative h-6 bg-dark-600 rounded-full overflow-hidden mb-3">
+                <div
+                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-ice via-cyan-500 to-safe opacity-30"
+                  style={{ width: `${Math.min(100, ((totalKm - remainingKm) / totalKm) * 100)}%` }}
+                />
+                {timelineEvents.slice().sort((a, b) => a.progressPct - b.progressPct).map((e, i) => (
+                  <div
+                    key={i}
+                    className={`absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full ${
+                      e.type === 'inspection'
+                        ? 'bg-safe z-20'
+                        : e.type === 'exception'
+                        ? 'bg-warn z-20'
+                        : e.type === 'warning'
+                        ? 'bg-danger z-20'
+                        : 'bg-ice/50'
+                    }`}
+                    style={{ left: `${e.progressPct}%` }}
+                    title={e.title}
+                  />
+                ))}
+                <div
+                  className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white shadow-lg z-30 flex items-center justify-center"
+                  style={{ left: `calc(${Math.min(100, ((totalKm - remainingKm) / totalKm) * 100)}% - 8px)` }}
+                >
+                  <div className="w-2.5 h-2.5 rounded-full bg-ice" />
+                </div>
+              </div>
+              <div className="flex justify-between text-[9px] text-gray-600 font-mono-num">
+                <span>0 km</span>
+                <span>{Math.round(totalKm / 4)} km</span>
+                <span>{Math.round(totalKm / 2)} km</span>
+                <span>{Math.round((totalKm * 3) / 4)} km</span>
+                <span>{totalKm} km</span>
+              </div>
+              <div className="flex gap-2 flex-wrap mt-3">
                 <span className="flex items-center gap-1 text-[10px] text-safe bg-safe/10 px-2 py-1 rounded-full">
                   <ClipboardCheck className="w-3 h-3" /> 巡检
                 </span>
@@ -510,20 +578,27 @@ export default function Transit() {
                   <p className="text-gray-600 text-xs mt-1">运输中会自动记录温度变化</p>
                 </div>
               ) : (
-                <div className="space-y-3 max-h-[60vh] overflow-y-auto scrollbar-hide">
+                <div className="space-y-3 max-h-[65vh] overflow-y-auto scrollbar-hide pr-1">
                   {timelineEvents.map((event, idx) => (
-                    <div key={idx} className="relative pl-6">
+                    <div key={idx} className="relative pl-7">
                       {idx < timelineEvents.length - 1 && (
-                        <div className="absolute left-1.5 top-5 w-px h-full bg-dark-600" />
+                        <div className="absolute left-1.5 top-6 w-px h-full bg-dark-600" />
                       )}
                       <div
-                        className={`absolute left-0 top-0.5 w-3 h-3 rounded-full border-2 ${event.color.split(' ')[2]}`}
-                      />
-                      <div className={`rounded-xl p-3 ${event.color.split(' ')[1]}`}>
+                        className={`absolute left-0 top-1 w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${event.color.split(' ')[2]}`}
+                      >
+                        <div className={`w-1.5 h-1.5 rounded-full ${event.color.split(' ')[0]}`} />
+                      </div>
+                      <div className={`rounded-xl p-2.5 ${event.color.split(' ')[1]}`}>
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-[10px] text-gray-500 font-mono-num">{event.time}</span>
-                          <div className={`w-5 h-5 rounded-full flex items-center justify-center ${event.color.split(' ')[1]}`}>
-                            {event.icon}
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-[10px] font-mono-num ${event.color.split(' ')[0]}`}>
+                              {event.temp.toFixed(1)}°C
+                            </span>
+                            <div className={`w-5 h-5 rounded-full flex items-center justify-center ${event.color.split(' ')[1]}`}>
+                              {event.icon}
+                            </div>
                           </div>
                         </div>
                         <p className={`text-sm font-medium ${event.color.split(' ')[0]}`}>

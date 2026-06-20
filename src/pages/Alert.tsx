@@ -19,6 +19,9 @@ import {
   Eye,
   CheckCircle,
   Clock,
+  Plus,
+  History,
+  X,
 } from 'lucide-react'
 
 function speakAlert() {
@@ -47,7 +50,7 @@ export default function Alert() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const fromWarning = searchParams.get('fromWarning') === '1'
-  const { getTaskById, addExceptionRecord, updateExceptionRecord, addTemperatureLog } = useAppStore()
+  const { getTaskById, addExceptionRecord, updateExceptionRecord, addTemperatureLog, addDisposalStep } = useAppStore()
   const task = getTaskById(taskId ?? '')
 
   const [selectedReason, setSelectedReason] = useState<ExceptionReason | null>(null)
@@ -58,6 +61,7 @@ export default function Alert() {
   const [selectedDisposal, setSelectedDisposal] = useState<DisposalResult | null>(null)
   const [disposalNotes, setDisposalNotes] = useState('')
   const [disposalCompleted, setDisposalCompleted] = useState(false)
+  const [showAddStep, setShowAddStep] = useState(false)
   const [voiceAlertActive, setVoiceAlertActive] = useState(fromWarning)
 
   useEffect(() => {
@@ -104,6 +108,7 @@ export default function Alert() {
       photoTimes: photos.map((p) => p.time),
       tempAtTime: task.currentTemp,
       disposalResult: 'pending' as DisposalResult,
+      disposalSteps: [],
     }
     addExceptionRecord(record)
     setSubmittedRecordId(record.id)
@@ -123,13 +128,23 @@ export default function Alert() {
   const handleSaveDisposal = () => {
     if (!submittedRecordId || !selectedDisposal) return
 
-    updateExceptionRecord(submittedRecordId, {
-      disposalResult: selectedDisposal,
-      disposalNotes: disposalNotes || undefined,
-      disposalTime: new Date().toISOString(),
+    addDisposalStep(submittedRecordId, {
+      id: `step-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      result: selectedDisposal,
+      notes: disposalNotes || undefined,
     })
     setDisposalCompleted(true)
+    setSelectedDisposal(null)
+    setDisposalNotes('')
+    setShowAddStep(false)
   }
+
+  const { exceptionRecords } = useAppStore()
+  const currentException = submittedRecordId
+    ? exceptionRecords.find((e) => e.id === submittedRecordId)
+    : null
+  const disposalSteps = currentException?.disposalSteps ?? []
 
   if (submitted) {
     return (
@@ -215,30 +230,154 @@ export default function Alert() {
               </button>
             </div>
           ) : (
-            <div className="bg-dark-700 rounded-2xl p-4 border-glass animate-scale-in">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-9 h-9 rounded-lg bg-safe/20 flex items-center justify-center">
-                  <CheckCircle className="w-5 h-5 text-safe" />
+            <div className="space-y-4 animate-fade-in">
+              {disposalSteps.length > 0 && (
+                <div className="bg-dark-700 rounded-2xl p-4 border-glass">
+                  <h3 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
+                    <History className="w-4 h-4 text-purple-400" />
+                    处置过程时间线
+                  </h3>
+                  <div className="space-y-3">
+                    {disposalSteps.map((step, idx) => (
+                      <div key={step.id} className="relative pl-6">
+                        {idx < disposalSteps.length - 1 && (
+                          <div className="absolute left-1.5 top-6 w-px h-full bg-purple-500/20" />
+                        )}
+                        <div className={`absolute left-0 top-1 w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
+                          idx === disposalSteps.length - 1
+                            ? 'bg-safe border-safe'
+                            : 'bg-purple-500/30 border-purple-500/50'
+                        }`}>
+                          {idx === disposalSteps.length - 1 && <Check className="w-2 h-2 text-white" />}
+                        </div>
+                        <div className={`rounded-xl p-3 ${
+                          idx === disposalSteps.length - 1 ? 'bg-safe/10 border border-safe/20' : 'bg-dark-600/60'
+                        }`}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] text-gray-500 font-mono-num">
+                              {new Date(step.timestamp).toLocaleString('zh-CN')}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              {step.result === 'contacted_dispatch' && <Phone className="w-3 h-3 text-gray-400" />}
+                              {step.result === 'replaced_ice_packs' && <Snowflake className="w-3 h-3 text-gray-400" />}
+                              {step.result === 'continue_monitoring' && <Eye className="w-3 h-3 text-gray-400" />}
+                              {(step.result === 'resolved' || step.result === 'pending') && <CheckCircle className="w-3 h-3 text-gray-400" />}
+                              <span className={`text-xs font-medium ${
+                                idx === disposalSteps.length - 1 ? 'text-safe' : 'text-gray-300'
+                              }`}>
+                                {DISPOSAL_RESULT_MAP[step.result]}
+                              </span>
+                            </div>
+                          </div>
+                          {step.notes && (
+                            <p className="text-[11px] text-gray-400 mt-0.5">{step.notes}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-medium text-white">处置完成</h3>
-                  <p className="text-[11px] text-gray-500 flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {new Date().toLocaleTimeString('zh-CN', { hour12: false })}
-                  </p>
+              )}
+
+              {!showAddStep ? (
+                <div className="space-y-3">
+                  <div className="bg-dark-700 rounded-2xl p-4 border-glass">
+                    <p className="text-sm text-white font-medium mb-1">当前状态</p>
+                    <div className="flex items-center gap-2 mb-2">
+                      {currentException?.disposalResult && (
+                        <span className="text-sm text-safe bg-safe/10 px-3 py-1 rounded-full">
+                          {DISPOSAL_RESULT_MAP[currentException.disposalResult]}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500">如有后续处置动作，可继续补充记录</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowAddStep(true)
+                      setSelectedDisposal(null)
+                      setDisposalNotes('')
+                      setDisposalCompleted(false)
+                    }}
+                    className="w-full py-3.5 rounded-2xl font-medium text-sm bg-gradient-to-r from-purple-500/20 to-ice/20 text-ice border border-ice/30 btn-3d flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    补充二次处置跟进
+                  </button>
                 </div>
-              </div>
-              <div className="bg-safe/10 border border-safe/20 rounded-xl p-3 mb-3">
-                <p className="text-sm text-safe font-medium">
-                  {DISPOSAL_RESULT_MAP[selectedDisposal!]}
-                </p>
-                {disposalNotes && (
-                  <p className="text-xs text-gray-400 mt-1">{disposalNotes}</p>
-                )}
-              </div>
-              <p className="text-xs text-gray-500 text-center">
-                处置记录将随本次运输一同归档，交接时可核对
-              </p>
+              ) : (
+                <div className="bg-dark-700 rounded-2xl p-4 border-glass animate-slide-up">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-purple-400" />
+                      补充处置跟进
+                    </h3>
+                    <button
+                      onClick={() => setShowAddStep(false)}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg bg-dark-600"
+                    >
+                      <X className="w-4 h-4 text-gray-400" />
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-4">继续记录本次异常的后续处置动作</p>
+
+                  <div className="space-y-2 mb-4">
+                    {[
+                      { key: 'contacted_dispatch' as DisposalResult, label: '已联系调度', icon: Phone },
+                      { key: 'replaced_ice_packs' as DisposalResult, label: '已更换冰排', icon: Snowflake },
+                      { key: 'continue_monitoring' as DisposalResult, label: '继续观察', icon: Eye },
+                      { key: 'resolved' as DisposalResult, label: '问题已解决', icon: CheckCircle },
+                    ].map(({ key, label, icon: Icon }) => {
+                      const isSelected = selectedDisposal === key
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => setSelectedDisposal(key)}
+                          className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                            isSelected
+                              ? 'bg-ice/10 border-ice/30 text-ice'
+                              : 'bg-dark-600 border-transparent text-gray-300 hover:bg-dark-600/80'
+                          }`}
+                        >
+                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                            isSelected ? 'bg-ice/20' : 'bg-dark-700'
+                          }`}>
+                            <Icon className="w-4.5 h-4.5" />
+                          </div>
+                          <span className="text-sm font-medium">{DISPOSAL_RESULT_MAP[key]}</span>
+                          {isSelected && (
+                            <Check className="w-4 h-4 ml-auto text-ice" />
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <div className="mb-4">
+                    <p className="text-sm text-gray-400 mb-2">处置备注（选填）</p>
+                    <textarea
+                      value={disposalNotes}
+                      onChange={(e) => setDisposalNotes(e.target.value)}
+                      placeholder="记录具体处置情况..."
+                      rows={2}
+                      className="w-full bg-dark-600 border border-dark-500 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm focus:outline-none focus:border-ice/50 resize-none"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleSaveDisposal}
+                    disabled={!selectedDisposal}
+                    className={`w-full py-3.5 rounded-2xl font-medium text-sm flex items-center justify-center gap-2 transition-all ${
+                      selectedDisposal
+                        ? 'bg-gradient-to-r from-ice to-cyan-500 text-dark-900 btn-3d'
+                        : 'bg-dark-600 text-gray-500 cursor-not-allowed'
+                    }`}
+                  >
+                    <CheckCircle className="w-5 h-5" />
+                    记录本次跟进
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
